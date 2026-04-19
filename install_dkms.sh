@@ -17,6 +17,7 @@ run_as_root() {
 run_as_root rm -rf "${DKMS_SRC_DIR}"
 run_as_root mkdir -p /usr/src
 run_as_root cp -r "${SCRIPT_DIR}" "${DKMS_SRC_DIR}"
+run_as_root dkms remove -m "${PKG_NAME}" -v "${PKG_VERSION}" --all || true
 run_as_root dkms add -m "${PKG_NAME}" -v "${PKG_VERSION}"
 run_as_root dkms build -m "${PKG_NAME}" -v "${PKG_VERSION}"
 run_as_root dkms install -m "${PKG_NAME}" -v "${PKG_VERSION}"

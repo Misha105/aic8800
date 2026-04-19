@@ -292,12 +292,8 @@ static void aicwf_usb_rx_complete(struct urb *urb)
                     g_rwnx_plat->wait_disconnect_cb = true;
                     if(atomic_read(&aicwf_deinit_atomic) > 0){
                         atomic_set(&aicwf_deinit_atomic, 0);
-	                        if (down_trylock(&aicwf_deinit_sem)) {
-	                            AICWFDBG(LOGERROR, "%s could not acquire deinit_sem (busy), deferring disconnect wait\r\n", __func__);
-                            g_rwnx_plat->wait_disconnect_cb = false;
-                        } else {
-                            AICWFDBG(LOGINFO, "%s acquired deinit_sem, disconnect callback ready\r\n", __func__);
-                        }
+                        down(&aicwf_deinit_sem);
+                        AICWFDBG(LOGINFO, "%s acquired deinit_sem, disconnect callback ready\r\n", __func__);
                     }else{
                         g_rwnx_plat->wait_disconnect_cb = false;
                     }
@@ -379,12 +375,8 @@ static void aicwf_usb_rx_complete(struct urb *urb)
 				g_rwnx_plat->wait_disconnect_cb = true;
 				if(atomic_read(&aicwf_deinit_atomic) > 0){
 					atomic_set(&aicwf_deinit_atomic, 0);
-						if (down_trylock(&aicwf_deinit_sem)) {
-							AICWFDBG(LOGERROR, "%s could not acquire deinit_sem (busy), deferring disconnect wait\r\n", __func__);
-						g_rwnx_plat->wait_disconnect_cb = false;
-					} else {
+						down(&aicwf_deinit_sem);
 						AICWFDBG(LOGINFO, "%s acquired deinit_sem, disconnect callback ready\r\n", __func__);
-					}
 				}else{
 					g_rwnx_plat->wait_disconnect_cb = false;
 				}
