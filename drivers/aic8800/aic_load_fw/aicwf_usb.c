@@ -1518,7 +1518,7 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
 	}
 
     if ((ret = rwnx_send_dbg_start_app_req(usb_dev, fw_addr, HOST_START_APP_AUTO))) {
-        return -1;
+        goto out_free_bus;
     }
     usb_dev->app_cmp = true;
 	fw_loaded = 1;

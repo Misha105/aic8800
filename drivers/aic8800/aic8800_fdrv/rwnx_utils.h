@@ -72,6 +72,8 @@ struct rwnx_ipc_elem_var {
     size_t size;
 };
 
+int rwnx_init_aic(struct rwnx_hw *rwnx_hw);
+
 /**
  * struct rwnx_ipc_dbgdump_elem - IPC buffer for debug dump
  *

@@ -109,6 +109,10 @@ userconfig_info_t userconfig_info = {
     },
 };
 
+static int rwnx_atoi(char *value);
+static void rwnx_plat_nvram_set_value(char *command, char *value);
+void rwnx_plat_userconfig_parsing(char *buffer, int size);
+
 
 #ifndef CONFIG_ROM_PATCH_EN
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0))
@@ -279,6 +283,11 @@ static int rwnx_load_firmware(u32 **fw_buf, const char *name, struct device *dev
 	}
 	
 	buffer = vmalloc(size);
+	if (!buffer) {
+		AICWFDBG(LOGERROR, "failed to allocate firmware buffer\n");
+		release_firmware(fw);
+		return -1;
+	}
 	memset(buffer, 0, size);
 	memcpy(buffer, dst, size);
 
@@ -1450,7 +1459,7 @@ static int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 #endif
 #endif /* !CONFIG_RWNX_FHOST */
 
-int rwnx_atoi(char *value)
+static int rwnx_atoi(char *value)
 {
     int len = 0;
     int i = 0;
@@ -1581,7 +1590,7 @@ void get_userconfig_xtal_cap(xtal_cap_conf_t *xtal_cap)
     AICWFDBG(LOGINFO, "%s:xtal_cap_fine:%d\r\n", __func__, xtal_cap->xtal_cap_fine);
 }
 
-void rwnx_plat_nvram_set_value(char *command, char *value)
+static void rwnx_plat_nvram_set_value(char *command, char *value)
 {
     //TODO send command
     AICWFDBG(LOGINFO, "%s:command=%s value=%s\n", __func__, command, value);
@@ -2026,5 +2035,3 @@ MODULE_FIRMWARE(RWNX_MAC_FW_NAME);
 #ifndef CONFIG_RWNX_TL4
 MODULE_FIRMWARE(RWNX_MAC_FW_NAME2);
 #endif
-
-

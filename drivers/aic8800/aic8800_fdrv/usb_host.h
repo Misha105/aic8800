@@ -34,6 +34,8 @@ struct usb_host_env_tag
 
 extern void aicwf_usb_host_init(struct usb_host_env_tag *env,
                   void *cb, void *shared_env_ptr, void *pthis);
+extern volatile struct txdesc_host *aicwf_usb_host_txdesc_get(
+    struct usb_host_env_tag *env, const int queue_idx);
 
 extern void aicwf_usb_host_txdesc_push(struct usb_host_env_tag *env, const int queue_idx, const uint64_t host_id);
 

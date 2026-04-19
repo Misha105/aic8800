@@ -9,6 +9,7 @@
  */
 #include <linux/dma-mapping.h>
 #include <linux/ieee80211.h>
+#include <linux/timer.h>
 #include <linux/etherdevice.h>
 #include <net/ieee80211_radiotap.h>
 
@@ -95,6 +96,16 @@ struct vendor_radiotap_hdr {
 };
 
 void rwnx_skb_align_8bytes(struct sk_buff *skb);
+static void rwnx_rx_data_skb_resend(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
+                                    struct sk_buff *skb, struct hw_rxhdr *hw_rxhdr);
+static int reord_flush_tid(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u8 tid);
+static bool reord_rxframes_process(struct aicwf_rx_priv *rx_priv,
+                                   struct reord_ctrl *preorder_ctrl, int bforced);
+static void reord_rxframes_ind(struct aicwf_rx_priv *rx_priv,
+                               struct reord_ctrl *preorder_ctrl);
+static int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb,
+                              u16 seq_num, u8 tid, u8 forward);
+static void remove_sec_hdr_mgmt_frame(struct hw_rxhdr *hw_rxhdr, struct sk_buff *skb);
 
 
 /**
@@ -322,7 +333,7 @@ static void rwnx_rx_statistic(struct rwnx_hw *rwnx_hw, struct hw_rxhdr *hw_rxhdr
     cpu_raise_softirq(smp_processor_id(), NET_RX_SOFTIRQ)
 #endif /* LINUX_VERSION_CODE  */
 
-void rwnx_rx_data_skb_resend(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
+static void rwnx_rx_data_skb_resend(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 							 struct sk_buff *skb,  struct hw_rxhdr *rxhdr)
 {
 	struct sk_buff *rx_skb = skb;
@@ -1135,7 +1146,7 @@ static void rwnx_rx_add_rtap_hdr(struct rwnx_hw* rwnx_hw,
 
     // Check for HE frames
     if (rxvect->format_mod == FORMATMOD_HE_SU) {
-        struct ieee80211_radiotap_he he;
+        struct ieee80211_radiotap_he he = {};
         #define HE_PREP(f, val) cpu_to_le16(FIELD_PREP(IEEE80211_RADIOTAP_HE_##f, val))
         #define D1_KNOWN(f) cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA1_##f##_KNOWN)
         #define D2_KNOWN(f) cpu_to_le16(IEEE80211_RADIOTAP_HE_DATA2_##f##_KNOWN)
@@ -1191,7 +1202,12 @@ static void rwnx_rx_add_rtap_hdr(struct rwnx_hw* rwnx_hw,
         while ((pos - (u8 *)rtap) & 1)
             pos++;
         rtap->it_present |= cpu_to_le32(1 << IEEE80211_RADIOTAP_HE);
-        memcpy(pos, &he, sizeof(he));
+        put_unaligned_le16(he.data1, pos);
+        put_unaligned_le16(he.data2, pos + 2);
+        put_unaligned_le16(he.data3, pos + 4);
+        put_unaligned_le16(he.data4, pos + 6);
+        put_unaligned_le16(he.data5, pos + 8);
+        put_unaligned_le16(he.data6, pos + 10);
         pos += sizeof(he);
     }
 
@@ -1347,7 +1363,7 @@ struct reord_ctrl_info *reord_init_sta(struct aicwf_rx_priv* rx_priv, const u8 *
     return reord_info;
 }
 
-int reord_flush_tid(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u8 tid)
+static int reord_flush_tid(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u8 tid)
 {
     struct reord_ctrl_info *reord_info;
     struct reord_ctrl *preorder_ctrl;
@@ -1402,7 +1418,11 @@ int reord_flush_tid(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u8 tid)
     preorder_ctrl->enable = false;
     spin_unlock_irqrestore(&preorder_ctrl->reord_list_lock, flags);
     if (timer_pending(&preorder_ctrl->reord_timer))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+        ret = timer_delete_sync(&preorder_ctrl->reord_timer);
+#else
         ret = del_timer_sync(&preorder_ctrl->reord_timer);
+#endif
     cancel_work_sync(&preorder_ctrl->reord_timer_work);
 
     return 0;
@@ -1428,7 +1448,11 @@ void reord_deinit_sta(struct aicwf_rx_priv* rx_priv, struct reord_ctrl_info *reo
 		if(preorder_ctrl->enable){
 			preorder_ctrl->enable = false;
 	        if (timer_pending(&preorder_ctrl->reord_timer)) {
+	            #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+	            ret = timer_delete_sync(&preorder_ctrl->reord_timer);
+	            #else
 	            ret = del_timer_sync(&preorder_ctrl->reord_timer);
+	            #endif
 	        }
 	        cancel_work_sync(&preorder_ctrl->reord_timer_work);
 		}
@@ -1442,8 +1466,8 @@ void reord_deinit_sta(struct aicwf_rx_priv* rx_priv, struct reord_ctrl_info *reo
             reord_rxframe_free(&rx_priv->freeq_lock, &rx_priv->rxframes_freequeue, &req->rxframe_list);
         }
 
-		AICWFDBG(LOGINFO, "reord dinit in_irq():%d in_atomic:%d in_softirq:%d\r\n", (int)in_irq()
-			,(int)in_atomic(), (int)in_softirq());
+		AICWFDBG(LOGINFO, "reord dinit in_atomic:%d in_softirq:%d\r\n",
+			(int)in_atomic(), (int)in_softirq());
         spin_unlock_bh(&preorder_ctrl->reord_list_lock);
     }
 
@@ -1558,7 +1582,7 @@ int reord_single_frame_ind(struct aicwf_rx_priv *rx_priv, struct recv_msdu *prfr
     return 0;
 }
 
-bool reord_rxframes_process(struct aicwf_rx_priv *rx_priv, struct reord_ctrl *preorder_ctrl, int bforced)
+static bool reord_rxframes_process(struct aicwf_rx_priv *rx_priv, struct reord_ctrl *preorder_ctrl, int bforced)
 {
     struct list_head *phead, *plist;
     struct recv_msdu *prframe;
@@ -1594,7 +1618,7 @@ bool reord_rxframes_process(struct aicwf_rx_priv *rx_priv, struct reord_ctrl *pr
     return bPktInBuf;
 }
 
-void reord_rxframes_ind(struct aicwf_rx_priv *rx_priv,
+static void reord_rxframes_ind(struct aicwf_rx_priv *rx_priv,
     struct reord_ctrl *preorder_ctrl)
 {
     struct list_head *phead, *plist;
@@ -1637,7 +1661,11 @@ void reord_timeout_handler (struct timer_list *t)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 	struct reord_ctrl *preorder_ctrl = (struct reord_ctrl *)data;
 #else
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+	struct reord_ctrl *preorder_ctrl = timer_container_of(preorder_ctrl, t, reord_timer);
+#else
 	struct reord_ctrl *preorder_ctrl = from_timer(preorder_ctrl, t, reord_timer);
+#endif
 #endif
 
 	AICWFDBG(LOGTRACE, "%s Enter \r\n", __func__);
@@ -1678,7 +1706,7 @@ void reord_timeout_worker(struct work_struct *work)
     return ;
 }
 
-int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 seq_num, u8 tid, u8 forward)
+static int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 seq_num, u8 tid, u8 forward)
 {
     int ret=0;
     u8 *mac;
@@ -1800,7 +1828,11 @@ int reord_process_unit(struct aicwf_rx_priv *rx_priv, struct sk_buff *skb, u16 s
         }
     } else {
 		if(timer_pending(&preorder_ctrl->reord_timer)) {
+	        	#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+	        	ret = timer_delete(&preorder_ctrl->reord_timer);
+	        	#else
 	        	ret = del_timer(&preorder_ctrl->reord_timer);
+	        	#endif
 		}
     }
 
@@ -1877,7 +1909,7 @@ int reord_rxframe_enqueue(struct reord_ctrl *preorder_ctrl, struct recv_msdu *pr
 }
 #endif /* AICWF_RX_REORDER */
 
-void remove_sec_hdr_mgmt_frame(struct hw_rxhdr *hw_rxhdr,struct sk_buff *skb)
+static void remove_sec_hdr_mgmt_frame(struct hw_rxhdr *hw_rxhdr,struct sk_buff *skb)
 {
     u8 hdr_len = 24;
     u8 mgmt_header[24] = {0};
@@ -2036,16 +2068,20 @@ check_len_update:
     }
 
     /* Check if it must be discarded after informing upper layer */
-    if (status & RX_STAT_SPURIOUS) {
-        struct ieee80211_hdr *hdr;
+	    if (status & RX_STAT_SPURIOUS) {
+	        struct ieee80211_hdr *hdr;
 
-        hdr = (struct ieee80211_hdr *)(skb->data + msdu_offset);
-        rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
-        if (rwnx_vif) {
-            cfg80211_rx_spurious_frame(rwnx_vif->ndev, hdr->addr2, GFP_ATOMIC);
-        }
-        goto end;
-    }
+	        hdr = (struct ieee80211_hdr *)(skb->data + msdu_offset);
+	        rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
+	        if (rwnx_vif) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+	            cfg80211_rx_spurious_frame(rwnx_vif->ndev, hdr->addr2, -1, GFP_ATOMIC);
+#else
+	            cfg80211_rx_spurious_frame(rwnx_vif->ndev, hdr->addr2, GFP_ATOMIC);
+#endif
+	        }
+	        goto end;
+	    }
 
     /* Check if we need to forward the buffer */
     if (status & RX_STAT_FORWARD) {
@@ -2132,11 +2168,16 @@ check_len_update:
                     }
                 }
 
-                if (hw_rxhdr->flags_is_4addr && !rwnx_vif->use_4addr) {
-                    cfg80211_rx_unexpected_4addr_frame(rwnx_vif->ndev,
-                                                       sta->mac_addr, GFP_ATOMIC);
-                }
-            }
+	                if (hw_rxhdr->flags_is_4addr && !rwnx_vif->use_4addr) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+	                    cfg80211_rx_unexpected_4addr_frame(rwnx_vif->ndev,
+	                                                       sta->mac_addr, -1, GFP_ATOMIC);
+#else
+	                    cfg80211_rx_unexpected_4addr_frame(rwnx_vif->ndev,
+	                                                       sta->mac_addr, GFP_ATOMIC);
+#endif
+	                }
+	            }
 
             skb->priority = 256 + tid;//hw_rxhdr->flags_user_prio;
 
@@ -2218,4 +2259,3 @@ end:
     REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
     return 0;
 }
-

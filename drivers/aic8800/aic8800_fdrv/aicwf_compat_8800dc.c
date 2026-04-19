@@ -1,5 +1,6 @@
 #include "rwnx_main.h"
 #include "rwnx_msg_tx.h"
+#include "aicwf_compat_8800dc.h"
 #include "reg_access.h"
 
 #define RWNX_MAC_FW_RF_BASE_NAME_8800DC   "lmacfw_rf_8800dc.bin"
@@ -25,11 +26,8 @@
 #define RWNX_MAC_RF_PATCH_NAME_8800DC RWNX_MAC_RF_PATCH_BASE_NAME_8800DC".bin"
 #define FW_USERCONFIG_NAME_8800DC         "aic_userconfig_8800dc.txt"
 
-int rwnx_plat_bin_fw_upload_2(struct rwnx_hw *rwnx_hw, u32 fw_addr,
-                               char *filename);
 int rwnx_request_firmware_common(struct rwnx_hw *rwnx_hw,
 	u32** buffer, const char *filename);
-void rwnx_plat_userconfig_parsing(char *buffer, int size);
 void rwnx_release_firmware_common(u32** buffer);
 
 typedef u32 (*array2_tbl_t)[2];
@@ -1956,14 +1954,21 @@ int aicwf_set_rf_config_8800dc(struct rwnx_hw *rwnx_hw, struct mm_set_rf_calib_c
 	return 0 ;
 }
 
-extern char aic_fw_path[200];
-int aicwf_plat_patch_load_8800dc(struct rwnx_hw *rwnx_hw){
-    int ret = 0;
+	extern char aic_fw_path[200];
+	int aicwf_plat_patch_load_8800dc(struct rwnx_hw *rwnx_hw){
+	    int ret = 0;
 
-#ifndef ANDROID_PLATFORM
-        sprintf(aic_fw_path, "%s/%s", aic_fw_path, "aic8800DC");
-#endif
-    if (testmode == 0) {
+	#ifndef ANDROID_PLATFORM
+		if (!strnstr(aic_fw_path, "/aic8800DC", sizeof(aic_fw_path))) {
+			size_t path_len = strlen(aic_fw_path);
+
+			if (path_len > 0 && path_len < sizeof(aic_fw_path) - 1)
+				strlcat(aic_fw_path, "/", sizeof(aic_fw_path));
+
+			strlcat(aic_fw_path, "aic8800DC", sizeof(aic_fw_path));
+		}
+	#endif
+	    if (testmode == 0) {
 #if !defined(CONFIG_FPGA_VERIFICATION)
         if (chip_sub_id == 0) {
             ret = rwnx_plat_bin_fw_upload_2(rwnx_hw, ROM_FMAC_PATCH_ADDR, RWNX_MAC_PATCH_NAME2_8800DC);
@@ -2108,4 +2113,3 @@ void system_config_8800dc(struct rwnx_hw *rwnx_hw){
     }
 
 }
-

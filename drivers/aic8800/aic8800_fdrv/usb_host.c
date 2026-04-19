@@ -151,4 +151,3 @@ int aicwf_rwnx_usb_platform_init(struct aic_usb_dev *usbdev)
 #endif
     return ret;
 }
-

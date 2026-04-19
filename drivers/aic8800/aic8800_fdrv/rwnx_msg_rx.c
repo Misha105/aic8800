@@ -24,6 +24,7 @@
 #endif /* CONFIG_RWNX_FULLMAC */
 #include "rwnx_events.h"
 #include "rwnx_compat.h"
+#include "rwnx_msg_rx.h"
 #include "aicwf_txrxif.h"
 #ifdef CONFIG_USE_WIRELESS_EXT
 #include "aicwf_wext_linux.h"
@@ -993,7 +994,7 @@ static inline int rwnx_rx_sm_connect_ind(struct rwnx_hw *rwnx_hw,
     return 0;
 }
 
-void rwnx_cfg80211_unlink_bss(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif){
+static void rwnx_cfg80211_unlink_bss(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif){
 	struct wiphy *wiphy = rwnx_hw->wiphy;
 	struct cfg80211_bss *bss = NULL;
 
@@ -1038,7 +1039,7 @@ static inline int rwnx_rx_sm_disconnect_ind(struct rwnx_hw *rwnx_hw,
     struct net_device *dev;
 #ifdef AICWF_RX_REORDER
     struct reord_ctrl_info *reord_info, *tmp;
-    u8 *macaddr;
+    const u8 *macaddr;
     struct aicwf_rx_priv *rx_priv;
 #endif
 
@@ -1535,4 +1536,3 @@ void rwnx_rx_handle_print(struct rwnx_hw *rwnx_hw, u8 *msg, u32 len)
     spin_unlock_bh(&rwnx_hw->debugfs.fw_log.lock);
 #endif
 }
-

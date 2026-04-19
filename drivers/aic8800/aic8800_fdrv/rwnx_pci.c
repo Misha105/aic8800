@@ -11,6 +11,7 @@
 #include <linux/module.h>
 
 #include "rwnx_defs.h"
+#include "rwnx_pci.h"
 #include "rwnx_dini.h"
 #include "rwnx_v7.h"
 
@@ -91,4 +92,3 @@ void rwnx_pci_unregister_drv(void)
 {
     pci_unregister_driver(&rwnx_pci_drv);
 }
-

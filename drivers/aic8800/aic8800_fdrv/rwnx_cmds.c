@@ -295,7 +295,7 @@ static int cmd_mgr_llind(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
     return 0;
 }
 
-void cmd_mgr_task_process(struct work_struct *work)
+static void cmd_mgr_task_process(struct work_struct *work)
 {
     struct rwnx_cmd_mgr *cmd_mgr = container_of(work, struct rwnx_cmd_mgr, cmdWork);
     struct rwnx_cmd *cur, *next = NULL;
@@ -538,4 +538,3 @@ void aicwf_set_cmd_tx(void *dev, struct lmac_msg *msg, uint len)
 
     aicwf_bus_txmsg(bus, buffer, len + 8);
 }
-

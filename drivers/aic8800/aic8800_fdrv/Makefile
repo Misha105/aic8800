@@ -244,7 +244,7 @@ ccflags-y += -DNX_TXQ_CNT=4
 endif
 
 # For old kernel (<=3.19)
-ifeq ($(shell test $(VERSION) -lt 4 -a "$(CONFIG_VENDOR_RWNX)" = y ; echo $$?),0)
+ifeq ($(shell [ -n "$(VERSION)" ] && [ "$(VERSION)" -lt 4 ] && [ "$(CONFIG_VENDOR_RWNX)" = y ]; echo $$?),0)
 ccflags-y += -DCONFIG_VENDOR_RWNX_VHT_NO80
 endif
 
@@ -360,4 +360,3 @@ uninstall:
 
 clean:
 	rm -rf *.o *.ko *.o.* *.mod.* modules.* Module.* .a* .o* .*.o.* *.mod .tmp* .cache.mk
-
